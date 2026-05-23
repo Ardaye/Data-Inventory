@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { createReservation, ReservationConflictError } from "@/lib/reservations";
+import { runWithIdempotency, IdempotencyConflictError } from "@/lib/idempotency";
+import { createReservation } from "@/lib/reservations";
 import { reserveSchema } from "@/lib/validation";
 
 export async function POST(request: Request) {
@@ -14,16 +16,37 @@ export async function POST(request: Request) {
       );
     }
 
-    const reservation = await createReservation(
-      parsed.data.productId,
-      parsed.data.warehouseId,
-      parsed.data.quantity,
+    const idempotencyKey = request.headers.get("Idempotency-Key");
+    const requestHash = createHash("sha256")
+      .update(`reserve:${parsed.data.productId}:${parsed.data.warehouseId}:${parsed.data.quantity}`)
+      .digest("hex");
+
+    const result = await runWithIdempotency(
+      "reserve",
+      idempotencyKey,
+      requestHash,
+      async () => {
+        const reservation = await createReservation(
+          parsed.data.productId,
+          parsed.data.warehouseId,
+          parsed.data.quantity,
+        );
+
+        return {
+          statusCode: 201,
+          body: reservation,
+        };
+      },
+      "Unable to create reservation right now.",
     );
 
-    return NextResponse.json(reservation, { status: 201 });
+    return NextResponse.json(result.body, { status: result.statusCode });
   } catch (error) {
-    if (error instanceof ReservationConflictError) {
-      return NextResponse.json({ error: error.message }, { status: 409 });
+    if (error instanceof IdempotencyConflictError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 409 },
+      );
     }
 
     console.error("Failed to create reservation", error);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 type WarehouseAvailability = {
   warehouseId: string;
@@ -27,35 +27,36 @@ type ReserveState = {
 
 export function ProductCatalog() {
   const router = useRouter();
+  const pathname = usePathname();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reserveState, setReserveState] = useState<Record<string, ReserveState>>({});
 
-  useEffect(() => {
-    async function loadProducts() {
-      setLoading(true);
+  async function loadProducts() {
+    setLoading(true);
 
-      try {
-        const response = await fetch("/api/products");
+    try {
+      const response = await fetch("/api/products");
 
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          throw new Error(payload?.error ?? "Failed to load products");
-        }
-
-        const payload = (await response.json()) as Product[];
-        setProducts(payload);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load products");
-      } finally {
-        setLoading(false);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error ?? "Failed to load products");
       }
-    }
 
+      const payload = (await response.json()) as Product[];
+      setProducts(payload);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load products");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
     void loadProducts();
-  }, []);
+  }, [pathname]);
 
   const totals = useMemo(() => {
     const totalAvailable = products.reduce(
@@ -97,6 +98,7 @@ export function ProductCatalog() {
         [productId + warehouseId]: { status: "success", message: "Reservation created. Redirecting to checkout..." },
       }));
 
+      await loadProducts();
       router.push(`/reservations/${payload.id}`);
     } catch (err) {
       setReserveState((current) => ({

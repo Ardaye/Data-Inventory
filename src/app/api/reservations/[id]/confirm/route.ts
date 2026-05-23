@@ -1,19 +1,40 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { confirmReservation, ReservationGoneError } from "@/lib/reservations";
+import { runWithIdempotency, IdempotencyConflictError } from "@/lib/idempotency";
+import { confirmReservation } from "@/lib/reservations";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
 
   try {
-    const reservation = await confirmReservation(id);
+    const idempotencyKey = request.headers.get("Idempotency-Key");
+    const requestHash = createHash("sha256").update(`confirm:${id}`).digest("hex");
 
-    return NextResponse.json(reservation);
+    const result = await runWithIdempotency(
+      "confirm",
+      idempotencyKey,
+      requestHash,
+      async () => {
+        const reservation = await confirmReservation(id);
+
+        return {
+          statusCode: 200,
+          body: reservation,
+        };
+      },
+      "Unable to confirm reservation right now.",
+    );
+
+    return NextResponse.json(result.body, { status: result.statusCode });
   } catch (error) {
-    if (error instanceof ReservationGoneError) {
-      return NextResponse.json({ error: error.message }, { status: 410 });
+    if (error instanceof IdempotencyConflictError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 409 },
+      );
     }
 
     console.error("Failed to confirm reservation", error);

@@ -12,6 +12,12 @@ enum ReservationStatus {
   released
 }
 
+enum IdempotencyStatus {
+  in_progress
+  completed
+  failed
+}
+
 model Warehouse {
   id         String      @id @default(cuid())
   name       String
@@ -55,4 +61,15 @@ model Reservation {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   inventory   Inventory         @relation(fields: [inventoryId], references: [id])
+}
+
+model IdempotencyKey {
+  key           String            @id
+  operation     String
+  requestHash   String
+  status        IdempotencyStatus @default(in_progress)
+  responseStatus Int?
+  responseBody  Json?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 }
